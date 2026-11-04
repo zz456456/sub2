@@ -385,7 +385,7 @@ func (c *chatGPTAccountClient) request(ctx context.Context, method, endpoint, to
 		}
 		return errors.New("ChatGPT network request failed; check the account proxy")
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	const limit = 2 << 20
 	data, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	if err != nil || len(data) > limit {

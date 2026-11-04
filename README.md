@@ -18,6 +18,8 @@ English | [中文](README_CN.md) | [日本語](README_JA.md)
 
 </div>
 
+For this fork's releases and Docker updates, see [Custom cloud updates](docs/custom-cloud-updates.md). Its production image is `ghcr.io/zz456456/sub2`.
+
 ## ⚠️ Important Notice
 
 Please read the following carefully before using this project:

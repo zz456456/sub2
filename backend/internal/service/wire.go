@@ -46,8 +46,9 @@ func ProvidePricingService(cfg *config.Config, remoteClient PricingRemoteClient)
 // ProvideUpdateService creates UpdateService with BuildInfo
 func ProvideUpdateService(cache UpdateCache, githubClient GitHubReleaseClient, buildInfo BuildInfo) *UpdateService {
 	svc := NewUpdateService(cache, githubClient, buildInfo.Version, buildInfo.BuildType)
-	// This installation is maintained locally; never fetch or install cloud releases.
-	svc.onlineUpdatesDisabled = true
+	// Docker deployments update by replacing the image, so cloud checks are
+	// available while binary replacement and local rollback stay disabled.
+	svc.inPlaceUpdatesDisabled = true
 	return svc
 }
 

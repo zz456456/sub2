@@ -12,6 +12,8 @@ export interface ReleaseInfo {
 }
 
 export interface VersionInfo {
+  update_repository?: string
+  docker_image?: string
   current_version: string
   latest_version: string
   has_update: boolean

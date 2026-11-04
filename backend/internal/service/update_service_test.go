@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -28,16 +29,20 @@ func (s *updateServiceCacheStub) SetUpdateInfo(_ context.Context, data string, _
 }
 
 type updateServiceGitHubClientStub struct {
+	latestRepo     string
+	recentRepo     string
 	release        *GitHubRelease
 	recentReleases []*GitHubRelease
 	recentErr      error
 }
 
-func (s *updateServiceGitHubClientStub) FetchLatestRelease(context.Context, string) (*GitHubRelease, error) {
+func (s *updateServiceGitHubClientStub) FetchLatestRelease(_ context.Context, repo string) (*GitHubRelease, error) {
+	s.latestRepo = repo
 	return s.release, nil
 }
 
-func (s *updateServiceGitHubClientStub) FetchRecentReleases(context.Context, string, int) ([]*GitHubRelease, error) {
+func (s *updateServiceGitHubClientStub) FetchRecentReleases(_ context.Context, repo string, _ int) ([]*GitHubRelease, error) {
+	s.recentRepo = repo
 	return s.recentReleases, s.recentErr
 }
 
@@ -69,30 +74,55 @@ func TestUpdateServicePerformUpdateNoUpdateReturnsSentinel(t *testing.T) {
 	require.ErrorIs(t, err, ErrNoUpdateAvailable)
 }
 
-func TestProvideUpdateServiceDisablesCloudUpdates(t *testing.T) {
-	// Nil dependencies deliberately fail if a disabled operation touches the
-	// release client or a stale update cache before returning.
-	svc := ProvideUpdateService(nil, nil, BuildInfo{Version: "0.1.147", BuildType: "release"})
+func TestProvideUpdateServiceChecksOwnReleasesAndRequiresDockerUpdate(t *testing.T) {
+	client := &updateServiceGitHubClientStub{
+		release:        &GitHubRelease{TagName: "v0.2.20"},
+		recentReleases: []*GitHubRelease{{TagName: "v0.2.18"}},
+	}
+	svc := ProvideUpdateService(&updateServiceCacheStub{}, client, BuildInfo{Version: "0.2.19", BuildType: "release"})
 	ctx := context.Background()
 
 	for _, force := range []bool{false, true} {
 		info, err := svc.CheckUpdate(ctx, force)
 		require.NoError(t, err)
-		require.Equal(t, "0.1.147", info.CurrentVersion)
-		require.Equal(t, info.CurrentVersion, info.LatestVersion)
+		require.Equal(t, "0.2.19", info.CurrentVersion)
+		require.Equal(t, "0.2.20", info.LatestVersion)
 		require.Equal(t, "release", info.BuildType)
-		require.False(t, info.HasUpdate)
-		require.False(t, info.Cached)
-		require.Nil(t, info.ReleaseInfo)
-		require.Contains(t, info.Warning, "disabled")
+		require.True(t, info.HasUpdate)
+		require.Equal(t, "zz456456/sub2", client.latestRepo)
+		require.Equal(t, client.latestRepo, info.UpdateRepository)
+		require.Equal(t, "ghcr.io/zz456456/sub2", info.DockerImage)
 	}
 
-	require.ErrorIs(t, svc.PerformUpdate(ctx), ErrOnlineUpdatesDisabled)
+	require.ErrorIs(t, svc.PerformUpdate(ctx), ErrInPlaceUpdatesDisabled)
 	versions, err := svc.ListRollbackVersions(ctx)
 	require.NoError(t, err)
-	require.NotNil(t, versions)
-	require.Empty(t, versions)
-	require.ErrorIs(t, svc.RollbackToVersion(ctx, "0.1.146"), ErrOnlineUpdatesDisabled)
+	require.Len(t, versions, 1)
+	require.Equal(t, "zz456456/sub2", client.recentRepo)
+	require.ErrorIs(t, svc.RollbackToVersion(ctx, "0.2.18"), ErrInPlaceUpdatesDisabled)
+	require.ErrorIs(t, svc.Rollback(), ErrInPlaceUpdatesDisabled)
+}
+
+func TestUpdateServiceIgnoresCachedUpstreamRelease(t *testing.T) {
+	data, err := json.Marshal(map[string]any{
+		"repository": "Wei-Shaw/sub2api",
+		"latest":     "99.0.0",
+		"timestamp":  time.Now().Unix(),
+	})
+	require.NoError(t, err)
+	client := &updateServiceGitHubClientStub{release: &GitHubRelease{TagName: "v0.2.20"}}
+	svc := NewUpdateService(&updateServiceCacheStub{data: string(data)}, client, "0.2.19", "release")
+	info, err := svc.CheckUpdate(context.Background(), false)
+	require.NoError(t, err)
+	require.False(t, info.Cached)
+	require.Equal(t, "0.2.20", info.LatestVersion)
+	require.Equal(t, "zz456456/sub2", client.latestRepo)
+
+	info, err = svc.CheckUpdate(context.Background(), false)
+	require.NoError(t, err)
+	require.True(t, info.Cached)
+	require.Equal(t, "zz456456/sub2", info.UpdateRepository)
+	require.Equal(t, "ghcr.io/zz456456/sub2", info.DockerImage)
 }
 
 func newRollbackTestService(current string, releases []*GitHubRelease) *UpdateService {

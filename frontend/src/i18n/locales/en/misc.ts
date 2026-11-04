@@ -19,6 +19,10 @@ export default {
 
   // Version Badge
   version: {
+    checkOwnUpdates: 'Check custom releases',
+    checkFailed: 'Version check failed. Please try again later.',
+    noCustomRelease: 'Your repository has no stable release yet. Publish a release and build the Docker image first.',
+    dockerUpdateHint: 'Run these commands in your deployment directory. Confirm Compose uses the image below. For another Compose file, add -f filename after each docker compose.',
     currentVersion: 'Current Version',
     latestVersion: 'Latest Version',
     upToDate: "You're running the latest version.",

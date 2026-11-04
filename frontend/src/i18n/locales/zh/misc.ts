@@ -19,6 +19,10 @@ export default {
 
   // Version Badge
   version: {
+    checkOwnUpdates: '检查自有版本更新',
+    checkFailed: '版本检查失败，请稍后重试。',
+    noCustomRelease: '你的仓库尚未发布正式版本。请先发布版本并构建 Docker 镜像。',
+    dockerUpdateHint: '在部署目录执行以下命令。请确认 Compose 使用下方镜像；如使用其他 Compose 文件，在每条 docker compose 后加 -f 文件名。',
     currentVersion: '当前版本',
     latestVersion: '最新版本',
     upToDate: '已是最新版本',

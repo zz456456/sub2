@@ -67,7 +67,7 @@ func (h *AccountHandler) ImportRemoteChatGPTAccounts(c *gin.Context) {
 		if err != nil {
 			return errors.New("remote server is unavailable or its address is not allowed")
 		}
-		defer res.Body.Close()
+		defer func() { _ = res.Body.Close() }()
 		if res.StatusCode != http.StatusOK {
 			return fmt.Errorf("remote server returned HTTP %d", res.StatusCode)
 		}

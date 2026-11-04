@@ -1,6 +1,7 @@
 import argparse
 import hashlib
 import importlib.util
+import itertools
 import io
 import json
 import os
@@ -15,6 +16,7 @@ from unittest.mock import patch
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
+BASH = os.environ.get('BASH', 'bash')
 spec = importlib.util.spec_from_file_location('release_matrix', Path(__file__).with_name('release_matrix.py'))
 release = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(release)
@@ -108,6 +110,7 @@ class ReleaseMatrixTest(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             release.verify(args)
 
+    @unittest.skipIf(os.name == 'nt', 'POSIX executable modes require a Unix filesystem')
     def test_linux_context_preserves_binary_executable_mode(self):
         args = self.fixture_artifacts()
         Path('Dockerfile.goreleaser').write_text('FROM scratch\nCOPY sub2api /sub2api\n')
@@ -143,47 +146,54 @@ class ReleaseMatrixTest(unittest.TestCase):
         fake_bin = Path('bin')
         fake_bin.mkdir()
         docker = fake_bin / 'docker'
-        docker.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$DOCKER_LOG"\n')
+        docker.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$DOCKER_LOG"\n', newline='\n')
         docker.chmod(0o755)
         env = {**os.environ, 'PATH': str(fake_bin.resolve()) + os.pathsep + os.environ['PATH'],
-               'DOCKER_LOG': str(Path('docker.log').resolve()), 'RUNNER_TEMP': self.temp.name,
-               'RELEASE_VERSION': '9.8.7', 'RELEASE_SHA': 'a' * 40, 'GITHUB_REPOSITORY': 'ExampleOwner/sub2api',
+               'DOCKER_LOG': Path('docker.log').resolve().as_posix(), 'RUNNER_TEMP': self.temp.name,
+               'RELEASE_VERSION': '9.8.7', 'RELEASE_SHA': 'a' * 40, 'GITHUB_REPOSITORY': 'ExampleOwner/CustomFork',
                'DRY_RUN': 'true', 'SIMPLE_RELEASE': 'false', 'DOCKERHUB_USERNAME': 'skip'}
-        subprocess.run(['bash', str(ROOT / '.github/release-tools/release-images.sh')], env=env, check=True)
+        subprocess.run([BASH, (ROOT / '.github/release-tools/release-images.sh').as_posix()], env=env, check=True)
         log = Path('docker.log').read_text()
         self.assertEqual(log.count('buildx build'), 2)
         self.assertIn('linux/arm64', log)
         self.assertNotIn('--push', log)
         self.assertNotIn('imagetools', log)
         self.assertNotIn('skip/sub2api', log)
-        self.assertIn('ghcr.io/exampleowner/sub2api', log)
+        self.assertIn('ghcr.io/exampleowner/customfork', log)
 
 
     def test_published_full_and_simple_image_tags(self):
         fake_bin = Path('bin')
         fake_bin.mkdir()
         docker = fake_bin / 'docker'
-        docker.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$DOCKER_LOG"\n')
+        docker.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$DOCKER_LOG"\n', newline='\n')
         docker.chmod(0o755)
-        for simple in (False, True):
-            with self.subTest(simple=simple):
-                log_path = Path(f'docker-{simple}.log').resolve()
+        for simple, version in itertools.product((False, True), ('9.8.7', '9.8.8-rc.1')):
+            with self.subTest(simple=simple, version=version):
+                log_path = Path(f'docker-{simple}-{version}.log').resolve()
                 env = {**os.environ, 'PATH': str(fake_bin.resolve()) + os.pathsep + os.environ['PATH'],
-                       'DOCKER_LOG': str(log_path), 'RUNNER_TEMP': self.temp.name,
-                       'RELEASE_VERSION': '9.8.7', 'RELEASE_SHA': 'a' * 40, 'GITHUB_REPOSITORY': 'ExampleOwner/sub2api',
+                       'DOCKER_LOG': log_path.as_posix(), 'RUNNER_TEMP': self.temp.name,
+                       'RELEASE_VERSION': version, 'RELEASE_SHA': 'a' * 40, 'GITHUB_REPOSITORY': 'ExampleOwner/CustomFork',
                        'DRY_RUN': 'false', 'SIMPLE_RELEASE': str(simple).lower(), 'DOCKERHUB_USERNAME': 'fixturehub'}
-                subprocess.run(['bash', str(ROOT / '.github/release-tools/release-images.sh')], env=env, check=True)
+                subprocess.run([BASH, (ROOT / '.github/release-tools/release-images.sh').as_posix()], env=env, check=True)
                 log = log_path.read_text()
                 self.assertIn('--push', log)
+                self.assertIn(f'ghcr.io/exampleowner/customfork:{version}', log)
+                if '-' in version:
+                    self.assertNotIn(':latest', log)
+                    self.assertNotIn(':9.8 ', log)
+                    self.assertNotIn(':9 ', log)
+                else:
+                    self.assertIn('ghcr.io/exampleowner/customfork:latest', log)
                 self.assertEqual(log.count('buildx build'), 1 if simple else 2)
                 if simple:
                     self.assertNotIn('fixturehub', log)
                     self.assertNotIn('imagetools', log)
-                    self.assertIn('ghcr.io/exampleowner/sub2api:latest', log)
                 else:
                     self.assertEqual(log.count('imagetools create'), 2)
-                    self.assertIn('fixturehub/sub2api:9.8', log)
-                    self.assertIn('ghcr.io/exampleowner/sub2api:9', log)
+                    if '-' not in version:
+                        self.assertIn('fixturehub/sub2api:9.8', log)
+                        self.assertIn('ghcr.io/exampleowner/customfork:9', log)
 
 
 

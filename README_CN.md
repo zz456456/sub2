@@ -18,6 +18,8 @@
 
 </div>
 
+本仓库的自有版本发布和 Docker 更新方式见 [自有版本云更新](docs/custom-cloud-updates.md)。生产镜像使用 `ghcr.io/zz456456/sub2`。
+
 
 ## ⚠️ 重要提醒
 

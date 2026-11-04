@@ -15,7 +15,7 @@ func TestChatGPTMaintenanceCASRejectsConcurrentEdits(t *testing.T) {
 		t.Run(string(rune('0'+affected)), func(t *testing.T) {
 			db, mock, err := sqlmock.New()
 			require.NoError(t, err)
-			defer db.Close()
+			defer func() { _ = db.Close() }()
 			r := &accountRepository{sql: db}
 			now := time.Now()
 			proxyID := int64(8)
@@ -33,7 +33,7 @@ func TestChatGPTMaintenanceCASRejectsConcurrentEdits(t *testing.T) {
 func TestChatGPTMaintenanceLeaseHasBoundedExpiryAndOwnerRelease(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	r := &accountRepository{sql: db}
 	mock.ExpectExec(`(?s)UPDATE accounts.*chatgpt_maintenance_until.*120.*deleted_at IS NULL.*EXTRACT`).WithArgs(int64(9), "owner").WillReturnResult(sqlmock.NewResult(0, 1))
 	acquired, err := r.AcquireChatGPTMaintenance(context.Background(), 9, "owner")

@@ -23,15 +23,16 @@ import (
 )
 
 var (
-	ErrOnlineUpdatesDisabled     = infraerrors.Forbidden("ONLINE_UPDATES_DISABLED", "online updates are disabled for this installation")
+	ErrInPlaceUpdatesDisabled    = infraerrors.Forbidden("DOCKER_UPDATE_REQUIRED", "use Docker Compose to pull the image and recreate the service")
 	ErrNoUpdateAvailable         = infraerrors.Conflict("ALREADY_UP_TO_DATE", "no update available; current version is latest")
 	ErrRollbackVersionNotAllowed = infraerrors.BadRequest("ROLLBACK_VERSION_NOT_ALLOWED", "version is not in the allowed rollback list")
 )
 
 const (
-	updateCacheKey = "update_check_cache"
-	updateCacheTTL = 1200 // 20 minutes
-	githubRepo     = "Wei-Shaw/sub2api"
+	updateCacheKey    = "update_check_cache"
+	updateCacheTTL    = 1200 // 20 minutes
+	UpdateRepository  = "zz456456/sub2"
+	updateDockerImage = "ghcr.io/" + UpdateRepository
 
 	// Security: allowed download domains for updates
 	allowedDownloadHost = "github.com"
@@ -62,11 +63,11 @@ type GitHubReleaseClient interface {
 
 // UpdateService handles software updates
 type UpdateService struct {
-	onlineUpdatesDisabled bool
-	cache                 UpdateCache
-	githubClient          GitHubReleaseClient
-	currentVersion        string
-	buildType             string // "source" for manual builds, "release" for CI builds
+	inPlaceUpdatesDisabled bool
+	cache                  UpdateCache
+	githubClient           GitHubReleaseClient
+	currentVersion         string
+	buildType              string // "source" for manual builds, "release" for CI builds
 }
 
 // NewUpdateService creates a new UpdateService
@@ -81,13 +82,15 @@ func NewUpdateService(cache UpdateCache, githubClient GitHubReleaseClient, versi
 
 // UpdateInfo contains update information
 type UpdateInfo struct {
-	CurrentVersion string       `json:"current_version"`
-	LatestVersion  string       `json:"latest_version"`
-	HasUpdate      bool         `json:"has_update"`
-	ReleaseInfo    *ReleaseInfo `json:"release_info,omitempty"`
-	Cached         bool         `json:"cached"`
-	Warning        string       `json:"warning,omitempty"`
-	BuildType      string       `json:"build_type"` // "source" or "release"
+	UpdateRepository string       `json:"update_repository"`
+	DockerImage      string       `json:"docker_image"`
+	CurrentVersion   string       `json:"current_version"`
+	LatestVersion    string       `json:"latest_version"`
+	HasUpdate        bool         `json:"has_update"`
+	ReleaseInfo      *ReleaseInfo `json:"release_info,omitempty"`
+	Cached           bool         `json:"cached"`
+	Warning          string       `json:"warning,omitempty"`
+	BuildType        string       `json:"build_type"` // "source" or "release"
 }
 
 // ReleaseInfo contains GitHub release details
@@ -133,15 +136,6 @@ type GitHubAsset struct {
 
 // CheckUpdate checks for available updates
 func (s *UpdateService) CheckUpdate(ctx context.Context, force bool) (*UpdateInfo, error) {
-	if s.onlineUpdatesDisabled {
-		return &UpdateInfo{
-			CurrentVersion: s.currentVersion,
-			LatestVersion:  s.currentVersion,
-			BuildType:      s.buildType,
-			Warning:        "Online updates are disabled for this installation.",
-		}, nil
-	}
-
 	// Try cache first
 	if !force {
 		if cached, err := s.getFromCache(ctx); err == nil && cached != nil {
@@ -158,11 +152,13 @@ func (s *UpdateService) CheckUpdate(ctx context.Context, force bool) (*UpdateInf
 			return cached, nil
 		}
 		return &UpdateInfo{
-			CurrentVersion: s.currentVersion,
-			LatestVersion:  s.currentVersion,
-			HasUpdate:      false,
-			Warning:        err.Error(),
-			BuildType:      s.buildType,
+			UpdateRepository: UpdateRepository,
+			DockerImage:      updateDockerImage,
+			CurrentVersion:   s.currentVersion,
+			LatestVersion:    s.currentVersion,
+			HasUpdate:        false,
+			Warning:          err.Error(),
+			BuildType:        s.buildType,
 		}, nil
 	}
 
@@ -174,8 +170,8 @@ func (s *UpdateService) CheckUpdate(ctx context.Context, force bool) (*UpdateInf
 // PerformUpdate downloads and applies the update
 // Uses atomic file replacement pattern for safe in-place updates
 func (s *UpdateService) PerformUpdate(ctx context.Context) error {
-	if s.onlineUpdatesDisabled {
-		return ErrOnlineUpdatesDisabled
+	if s.inPlaceUpdatesDisabled {
+		return ErrInPlaceUpdatesDisabled
 	}
 
 	info, err := s.CheckUpdate(ctx, true)
@@ -296,6 +292,10 @@ func (s *UpdateService) applyReleaseAssets(ctx context.Context, releaseAssets []
 
 // Rollback restores the previous version
 func (s *UpdateService) Rollback() error {
+	if s.inPlaceUpdatesDisabled {
+		return ErrInPlaceUpdatesDisabled
+	}
+
 	exePath, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("failed to get executable path: %w", err)
@@ -322,10 +322,6 @@ func (s *UpdateService) Rollback() error {
 // strictly older than the current version (the current version itself is excluded),
 // newest first. Draft and prerelease entries are skipped.
 func (s *UpdateService) ListRollbackVersions(ctx context.Context) ([]RollbackVersion, error) {
-	if s.onlineUpdatesDisabled {
-		return []RollbackVersion{}, nil
-	}
-
 	releases, err := s.fetchRollbackCandidates(ctx)
 	if err != nil {
 		return nil, err
@@ -346,8 +342,8 @@ func (s *UpdateService) ListRollbackVersions(ctx context.Context) ([]RollbackVer
 // The target must be one of the versions returned by ListRollbackVersions;
 // anything else (including the current version) is rejected.
 func (s *UpdateService) RollbackToVersion(ctx context.Context, version string) error {
-	if s.onlineUpdatesDisabled {
-		return ErrOnlineUpdatesDisabled
+	if s.inPlaceUpdatesDisabled {
+		return ErrInPlaceUpdatesDisabled
 	}
 
 	target := strings.TrimPrefix(strings.TrimSpace(version), "v")
@@ -386,7 +382,7 @@ func (s *UpdateService) RollbackToVersion(ctx context.Context, version string) e
 // fetchRollbackCandidates fetches recent releases and keeps the newest
 // maxRollbackVersions entries strictly older than the current version.
 func (s *UpdateService) fetchRollbackCandidates(ctx context.Context) ([]*GitHubRelease, error) {
-	releases, err := s.githubClient.FetchRecentReleases(ctx, githubRepo, rollbackFetchPageSize)
+	releases, err := s.githubClient.FetchRecentReleases(ctx, UpdateRepository, rollbackFetchPageSize)
 	if err != nil {
 		return nil, err
 	}
@@ -423,7 +419,7 @@ func (s *UpdateService) fetchRollbackCandidates(ctx context.Context) ([]*GitHubR
 }
 
 func (s *UpdateService) fetchLatestRelease(ctx context.Context) (*UpdateInfo, error) {
-	release, err := s.githubClient.FetchLatestRelease(ctx, githubRepo)
+	release, err := s.githubClient.FetchLatestRelease(ctx, UpdateRepository)
 	if err != nil {
 		return nil, err
 	}
@@ -440,9 +436,11 @@ func (s *UpdateService) fetchLatestRelease(ctx context.Context) (*UpdateInfo, er
 	}
 
 	return &UpdateInfo{
-		CurrentVersion: s.currentVersion,
-		LatestVersion:  latestVersion,
-		HasUpdate:      compareVersions(s.currentVersion, latestVersion) < 0,
+		UpdateRepository: UpdateRepository,
+		DockerImage:      updateDockerImage,
+		CurrentVersion:   s.currentVersion,
+		LatestVersion:    latestVersion,
+		HasUpdate:        compareVersions(s.currentVersion, latestVersion) < 0,
 		ReleaseInfo: &ReleaseInfo{
 			Name:        release.Name,
 			Body:        release.Body,
@@ -623,6 +621,7 @@ func (s *UpdateService) getFromCache(ctx context.Context) (*UpdateInfo, error) {
 	}
 
 	var cached struct {
+		Repository  string       `json:"repository"`
 		Latest      string       `json:"latest"`
 		ReleaseInfo *ReleaseInfo `json:"release_info"`
 		Timestamp   int64        `json:"timestamp"`
@@ -630,27 +629,34 @@ func (s *UpdateService) getFromCache(ctx context.Context) (*UpdateInfo, error) {
 	if err := json.Unmarshal([]byte(data), &cached); err != nil {
 		return nil, err
 	}
+	if cached.Repository != UpdateRepository {
+		return nil, fmt.Errorf("cached update belongs to a different repository")
+	}
 
 	if time.Now().Unix()-cached.Timestamp > updateCacheTTL {
 		return nil, fmt.Errorf("cache expired")
 	}
 
 	return &UpdateInfo{
-		CurrentVersion: s.currentVersion,
-		LatestVersion:  cached.Latest,
-		HasUpdate:      compareVersions(s.currentVersion, cached.Latest) < 0,
-		ReleaseInfo:    cached.ReleaseInfo,
-		Cached:         true,
-		BuildType:      s.buildType,
+		UpdateRepository: UpdateRepository,
+		DockerImage:      updateDockerImage,
+		CurrentVersion:   s.currentVersion,
+		LatestVersion:    cached.Latest,
+		HasUpdate:        compareVersions(s.currentVersion, cached.Latest) < 0,
+		ReleaseInfo:      cached.ReleaseInfo,
+		Cached:           true,
+		BuildType:        s.buildType,
 	}, nil
 }
 
 func (s *UpdateService) saveToCache(ctx context.Context, info *UpdateInfo) {
 	cacheData := struct {
+		Repository  string       `json:"repository"`
 		Latest      string       `json:"latest"`
 		ReleaseInfo *ReleaseInfo `json:"release_info"`
 		Timestamp   int64        `json:"timestamp"`
 	}{
+		Repository:  UpdateRepository,
 		Latest:      info.LatestVersion,
 		ReleaseInfo: info.ReleaseInfo,
 		Timestamp:   time.Now().Unix(),
