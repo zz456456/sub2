@@ -9,7 +9,7 @@ import builtinCatalog from './platformCatalog.builtin.json'
  * 生成并校验与后端一致；前端随后端一同构建发布，无需运行时拉取。
  */
 
-export type PlatformGateway = 'anthropic' | 'openai' | 'gemini' | 'antigravity'
+export type PlatformGateway = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'management'
 export type ProviderRouting = 'by_inbound' | 'by_model'
 export type ProviderNativeProtocol = 'chat_completions' | 'anthropic' | 'responses'
 
@@ -74,6 +74,10 @@ export function listPlatforms(): PlatformSpec[] {
 
 export function listPlatformIds(): string[] {
   return listPlatforms().map(spec => spec.id)
+}
+
+export function listRequestPlatformIds(): string[] {
+  return listPlatforms().filter(spec => spec.gateway !== 'management').map(spec => spec.id)
 }
 
 export function getPlatformSpec(platform: string | null | undefined): PlatformSpec | undefined {

@@ -83,7 +83,7 @@ func firstAccountTestOptions(opts []AccountTestOptions) AccountTestOptions {
 const maxAccountTestMediaBytes = 8 << 20
 
 const (
-	defaultGeminiTextTestPrompt  = "hi"
+	defaultGeminiTextTestPrompt  = "ciallo"
 	defaultGeminiImageTestPrompt = "Generate a cute orange cat astronaut sticker on a clean pastel background."
 	defaultOpenAIImageTestPrompt = "Generate a cute orange cat astronaut sticker on a clean pastel background."
 	defaultGrokImageTestPrompt   = "Generate a cute orange cat astronaut sticker on a clean pastel background."
@@ -327,7 +327,7 @@ func createTestPayload(modelID string) (map[string]any, error) {
 				"content": []map[string]any{
 					{
 						"type": "text",
-						"text": "hi",
+						"text": "ciallo",
 						"cache_control": map[string]string{
 							"type": "ephemeral",
 						},
@@ -718,7 +718,7 @@ func (s *AccountTestService) testBedrockAccountConnection(c *gin.Context, ctx co
 				"content": []map[string]any{
 					{
 						"type": "text",
-						"text": "hi",
+						"text": "ciallo",
 					},
 				},
 			},
@@ -2791,7 +2791,7 @@ func createOpenAITestPayload(modelID string, isOAuth bool) map[string]any {
 				"content": []map[string]any{
 					{
 						"type": "input_text",
-						"text": "hi",
+						"text": "ciallo",
 					},
 				},
 			},
@@ -2813,7 +2813,7 @@ func createOpenAITestPayload(modelID string, isOAuth bool) map[string]any {
 func createOpenAIChatCompletionsTestPayload(modelID string, prompt string) map[string]any {
 	testPrompt := strings.TrimSpace(prompt)
 	if testPrompt == "" {
-		testPrompt = "hi"
+		testPrompt = "ciallo"
 	}
 
 	return map[string]any{

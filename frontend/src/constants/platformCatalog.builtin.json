@@ -278,6 +278,12 @@
           }
         ]
       }
+    },
+    {
+      "id": "chatgpt",
+      "display_name": "ChatGPT",
+      "gateway": "management",
+      "cn_provider": false
     }
   ],
   "composite_precedence": [

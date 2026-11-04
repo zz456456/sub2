@@ -58,18 +58,25 @@ type DataProxy struct {
 // 影子的独立调度配置(priority/并发/分组/status 管理员可单独调)亦不在本备份范围,属已知局限
 // (外审第6轮裁决:保持排除 + 前端警告,而非升级格式做完整往返)。
 type DataAccount struct {
-	Name               string         `json:"name"`
-	Notes              *string        `json:"notes,omitempty"`
-	Platform           string         `json:"platform"`
-	Type               string         `json:"type"`
-	Credentials        map[string]any `json:"credentials"`
-	Extra              map[string]any `json:"extra,omitempty"`
-	ProxyKey           *string        `json:"proxy_key,omitempty"`
-	Concurrency        int            `json:"concurrency"`
-	Priority           int            `json:"priority"`
-	RateMultiplier     *float64       `json:"rate_multiplier,omitempty"`
-	ExpiresAt          *int64         `json:"expires_at,omitempty"`
-	AutoPauseOnExpired *bool          `json:"auto_pause_on_expired,omitempty"`
+	Name               string             `json:"name"`
+	Notes              *string            `json:"notes,omitempty"`
+	Platform           string             `json:"platform"`
+	Type               string             `json:"type"`
+	Credentials        map[string]any     `json:"credentials"`
+	Extra              map[string]any     `json:"extra,omitempty"`
+	ProxyKey           *string            `json:"proxy_key,omitempty"`
+	Concurrency        int                `json:"concurrency"`
+	Priority           int                `json:"priority"`
+	RateMultiplier     *float64           `json:"rate_multiplier,omitempty"`
+	ExpiresAt          *int64             `json:"expires_at,omitempty"`
+	AutoPauseOnExpired *bool              `json:"auto_pause_on_expired,omitempty"`
+	ChatGPTConfig      *DataChatGPTConfig `json:"chatgpt_config,omitempty"`
+}
+
+type DataChatGPTConfig struct {
+	GroupNames  []string `json:"group_names"`
+	Status      string   `json:"status"`
+	Schedulable bool     `json:"schedulable"`
 }
 
 type DataImportRequest struct {
@@ -186,6 +193,21 @@ func (h *AccountHandler) ExportData(c *gin.Context) {
 	}
 
 	dataAccounts := make([]DataAccount, 0, len(accounts))
+	var chatGPTGroups map[int64]string
+	for _, acc := range accounts {
+		if acc.Platform == service.PlatformChatGPT {
+			groups, groupErr := h.adminService.GetAllGroups(ctx)
+			if groupErr != nil {
+				response.ErrorFrom(c, groupErr)
+				return
+			}
+			chatGPTGroups = make(map[int64]string, len(groups))
+			for _, group := range groups {
+				chatGPTGroups[group.ID] = group.Name
+			}
+			break
+		}
+	}
 	for i := range accounts {
 		acc := accounts[i]
 		var proxyKey *string
@@ -213,6 +235,22 @@ func (h *AccountHandler) ExportData(c *gin.Context) {
 			ExpiresAt:          expiresAt,
 			AutoPauseOnExpired: &acc.AutoPauseOnExpired,
 		})
+		if acc.Platform == service.PlatformChatGPT {
+			cleanExtra := make(map[string]any, len(acc.Extra))
+			for key, value := range acc.Extra {
+				if key != "chatgpt_maintenance_owner" && key != "chatgpt_maintenance_until" {
+					cleanExtra[key] = value
+				}
+			}
+			dataAccounts[len(dataAccounts)-1].Extra = cleanExtra
+			config := &DataChatGPTConfig{Status: acc.Status, Schedulable: acc.Schedulable, GroupNames: []string{}}
+			for _, id := range acc.GroupIDs {
+				if name := chatGPTGroups[id]; name != "" {
+					config.GroupNames = append(config.GroupNames, name)
+				}
+			}
+			dataAccounts[len(dataAccounts)-1].ChatGPTConfig = config
+		}
 	}
 
 	payload := DataPayload{
@@ -402,6 +440,8 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 
 	// 收集需要异步设置隐私的 Antigravity OAuth 账号
 	var privacyAccounts []*service.Account
+	chatGPTGroupsByName := map[string]int64{}
+	chatGPTGroupsLoaded := false
 
 	for i := range dataPayload.Accounts {
 		item := dataPayload.Accounts[i]
@@ -432,6 +472,38 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 		}
 
 		enrichCredentialsFromIDToken(&item)
+		var groupIDs []int64
+		if item.Platform == service.PlatformChatGPT && item.ChatGPTConfig != nil {
+			if !chatGPTGroupsLoaded {
+				groups, groupErr := h.adminService.GetAllGroupsByPlatform(ctx, service.PlatformChatGPT)
+				if groupErr != nil {
+					return result, groupErr
+				}
+				for _, group := range groups {
+					chatGPTGroupsByName[group.Name] = group.ID
+				}
+				chatGPTGroupsLoaded = true
+			}
+			groupFailure := false
+			for _, name := range item.ChatGPTConfig.GroupNames {
+				id := chatGPTGroupsByName[name]
+				if id == 0 {
+					group, groupErr := h.adminService.CreateGroup(ctx, &service.CreateGroupInput{Name: name, Platform: service.PlatformChatGPT, RateMultiplier: 1, SubscriptionType: "standard"})
+					if groupErr != nil {
+						groupFailure = true
+						break
+					}
+					id = group.ID
+					chatGPTGroupsByName[name] = id
+				}
+				groupIDs = append(groupIDs, id)
+			}
+			if groupFailure {
+				result.AccountFailed++
+				result.Errors = append(result.Errors, DataImportError{Kind: "account", Name: item.Name, Message: "cannot restore ChatGPT account groups"})
+				continue
+			}
+		}
 
 		accountInput := &service.CreateAccountInput{
 			Name:                 item.Name,
@@ -444,7 +516,7 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 			Concurrency:          item.Concurrency,
 			Priority:             item.Priority,
 			RateMultiplier:       item.RateMultiplier,
-			GroupIDs:             nil,
+			GroupIDs:             groupIDs,
 			ExpiresAt:            item.ExpiresAt,
 			AutoPauseOnExpired:   item.AutoPauseOnExpired,
 			SkipDefaultGroupBind: skipDefaultGroupBind,
@@ -459,6 +531,20 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 				Message: err.Error(),
 			})
 			continue
+		}
+		if created.Platform == service.PlatformChatGPT && item.ChatGPTConfig != nil {
+			config := item.ChatGPTConfig
+			if config.Status == "inactive" || config.Status == service.StatusDisabled {
+				_, err = h.adminService.UpdateAccount(ctx, created.ID, &service.UpdateAccountInput{Status: config.Status})
+			}
+			if err == nil && !config.Schedulable {
+				_, err = h.adminService.SetAccountSchedulable(ctx, created.ID, false)
+			}
+			if err != nil {
+				result.AccountFailed++
+				result.Errors = append(result.Errors, DataImportError{Kind: "account", Name: item.Name, Message: "account created but enable state could not be restored"})
+				continue
+			}
 		}
 		// 收集 Antigravity OAuth 账号，稍后异步设置隐私
 		if created.Platform == service.PlatformAntigravity && created.Type == service.AccountTypeOAuth {

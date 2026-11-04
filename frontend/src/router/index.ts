@@ -549,6 +549,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/chatgpt-accounts',
+    name: 'AdminChatGPTAccounts',
+    component: () => import('@/views/admin/ChatGPTAccountsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'ChatGPT Account Pool',
+      titleKey: 'admin.chatgptAccounts.title',
+      descriptionKey: 'admin.chatgptAccounts.description'
+    }
+  },
+  {
     path: '/admin/plugins',
     name: 'AdminPlugins',
     component: () => import('@/views/admin/PluginsView.vue'),

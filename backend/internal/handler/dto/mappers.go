@@ -255,6 +255,8 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 		Type:                    a.Type,
 		Credentials:             redactedCreds,
 		CredentialsStatus:       credsStatus,
+		CredentialState:         service.AccountCredentialState(a, time.Now()),
+		ChatGPTPoolState:        service.ChatGPTAccountPoolState(a, time.Now()),
 		Extra:                   extra,
 		OllamaCloudUsage:        ollamaCloudUsage,
 		OpenCodeGoUsage:         openCodeGoUsage,
@@ -423,6 +425,8 @@ func redactAccountManagedExtra(extra map[string]any) map[string]any {
 	for key, value := range extra {
 		switch key {
 		case service.OllamaCloudUsageSessionExtraKey,
+			"chatgpt_maintenance_owner",
+			"chatgpt_maintenance_until",
 			service.OllamaCloudUsageAutoRefreshExtraKey,
 			service.OllamaCloudUsageSnapshotExtraKey,
 			service.OpenCodeGoUsageAutoRefreshExtraKey,
@@ -467,6 +471,8 @@ func AccountListItemFromAccount(a *Account) *AccountListItem {
 	return &AccountListItem{
 		ID: a.ID, Name: a.Name, Notes: a.Notes, Platform: a.Platform, Type: a.Type,
 		Credentials: a.Credentials, CredentialsStatus: a.CredentialsStatus, Extra: a.Extra,
+		CredentialState:  a.CredentialState,
+		ChatGPTPoolState: a.ChatGPTPoolState,
 		OllamaCloudUsage: a.OllamaCloudUsage, OpenCodeGoUsage: a.OpenCodeGoUsage,
 		ProxyID: a.ProxyID, ProxyFallbackOriginID: a.ProxyFallbackOriginID, ProxyFallbackOriginName: a.ProxyFallbackOriginName,
 		Concurrency: a.Concurrency, LoadFactor: a.LoadFactor, Priority: a.Priority, RateMultiplier: a.RateMultiplier,

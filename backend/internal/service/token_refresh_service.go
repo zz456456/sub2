@@ -65,6 +65,7 @@ type TokenRefreshService struct {
 	tempUnschedCache TempUnschedCache // 用于清除 Redis 中的临时不可调度缓存
 	refreshAPI       *OAuthRefreshAPI // 统一刷新 API
 	runtimeBlocker   AccountRuntimeBlocker
+	chatgptManager   ChatGPTAccountManager
 
 	// OpenAI privacy: 刷新成功后检查并设置 training opt-out
 	privacyClientFactory PrivacyClientFactory
@@ -182,6 +183,10 @@ func (s *TokenRefreshService) SetRefreshPolicy(policy BackgroundRefreshPolicy) {
 
 func (s *TokenRefreshService) SetAccountRuntimeBlocker(blocker AccountRuntimeBlocker) {
 	s.runtimeBlocker = blocker
+}
+
+func (s *TokenRefreshService) SetChatGPTAccountManager(manager ChatGPTAccountManager) {
+	s.chatgptManager = manager
 }
 
 func (s *TokenRefreshService) notifyAccountSchedulingBlocked(account *Account, until time.Time, reason string) {
@@ -490,6 +495,7 @@ func (s *TokenRefreshService) processRefreshContext(parent context.Context) {
 	}
 	ctx, cancel := context.WithTimeout(parent, s.cycleTimeout())
 	defer cancel()
+	defer s.maintainChatGPTPool(ctx)
 
 	pager := s.candidatePager
 	if pager == nil {

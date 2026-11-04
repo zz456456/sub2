@@ -69,6 +69,32 @@ func TestUpdateServicePerformUpdateNoUpdateReturnsSentinel(t *testing.T) {
 	require.ErrorIs(t, err, ErrNoUpdateAvailable)
 }
 
+func TestProvideUpdateServiceDisablesCloudUpdates(t *testing.T) {
+	// Nil dependencies deliberately fail if a disabled operation touches the
+	// release client or a stale update cache before returning.
+	svc := ProvideUpdateService(nil, nil, BuildInfo{Version: "0.1.147", BuildType: "release"})
+	ctx := context.Background()
+
+	for _, force := range []bool{false, true} {
+		info, err := svc.CheckUpdate(ctx, force)
+		require.NoError(t, err)
+		require.Equal(t, "0.1.147", info.CurrentVersion)
+		require.Equal(t, info.CurrentVersion, info.LatestVersion)
+		require.Equal(t, "release", info.BuildType)
+		require.False(t, info.HasUpdate)
+		require.False(t, info.Cached)
+		require.Nil(t, info.ReleaseInfo)
+		require.Contains(t, info.Warning, "disabled")
+	}
+
+	require.ErrorIs(t, svc.PerformUpdate(ctx), ErrOnlineUpdatesDisabled)
+	versions, err := svc.ListRollbackVersions(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, versions)
+	require.Empty(t, versions)
+	require.ErrorIs(t, svc.RollbackToVersion(ctx, "0.1.146"), ErrOnlineUpdatesDisabled)
+}
+
 func newRollbackTestService(current string, releases []*GitHubRelease) *UpdateService {
 	return NewUpdateService(
 		&updateServiceCacheStub{},

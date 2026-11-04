@@ -1715,6 +1715,7 @@ export interface AdminDataAccount {
   rate_multiplier?: number | null
   expires_at?: number | null
   auto_pause_on_expired?: boolean
+  chatgpt_config?: { group_names: string[]; status: string; schedulable: boolean }
 }
 
 export interface AdminDataImportError {

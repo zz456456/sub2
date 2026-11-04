@@ -411,6 +411,9 @@ func normalizeOpenAILongContextBillingUpdateExtra(account *Account, input *Updat
 // Grok media eligibility helpers live in account_grok_media_eligibility.go.
 
 func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]any) (*Account, error) {
+	if input.Platform == PlatformChatGPT && input.Type != AccountTypeOAuth {
+		return nil, errors.New("ChatGPT accounts require OAuth credentials")
+	}
 	if input.Platform == PlatformTypeSafe && input.Type != AccountTypeAPIKey {
 		return nil, errors.New("typesafe accounts only support apikey credentials")
 	}
@@ -583,6 +586,33 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	}
 	if account.Platform == PlatformTypeSafe && input.Type != "" && input.Type != AccountTypeAPIKey {
 		return nil, errors.New("typesafe accounts only support apikey credentials")
+	}
+	if account.Platform == PlatformChatGPT {
+		if input.Type != "" && input.Type != AccountTypeOAuth {
+			return nil, errors.New("ChatGPT accounts require OAuth credentials")
+		}
+		if input.Extra != nil || input.Credentials != nil {
+			extra := make(map[string]any, len(account.Extra)+2)
+			for k, v := range account.Extra {
+				extra[k] = v
+			}
+			for k, v := range input.Extra {
+				if !strings.HasPrefix(k, "chatgpt_") || k == "chatgpt_auto_maintain" {
+					extra[k] = v
+				}
+			}
+			if token, ok := input.Credentials["access_token"].(string); ok && token != "" && token != account.GetCredential("access_token") {
+				extra["chatgpt_access_invalid"] = false
+				input.Credentials["expires_at"] = ""
+				if state := AccountCredentialState(&Account{Type: AccountTypeOAuth, Credentials: map[string]any{"access_token": token}}, time.Now()); state.ExpiresAt != nil {
+					input.Credentials["expires_at"] = time.Unix(*state.ExpiresAt, 0).UTC().Format(time.RFC3339)
+				}
+			}
+			if token, ok := input.Credentials["refresh_token"].(string); ok && token != "" && token != account.GetCredential("refresh_token") {
+				extra["chatgpt_refresh_invalid"] = false
+			}
+			input.Extra = extra
+		}
 	}
 	var normalizedExtra map[string]any
 	if input.Extra != nil {

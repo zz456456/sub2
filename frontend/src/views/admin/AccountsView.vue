@@ -1879,6 +1879,11 @@ const loadAccountDetails = async (account: Pick<AccountListItem, 'id'>): Promise
 }
 
 const handleEdit = async (a: AccountListItem) => {
+  if (a.platform === 'chatgpt') {
+    const { default: router } = await import('@/router')
+    await router.push({ name: 'AdminChatGPTAccounts', query: { edit: a.id } })
+    return
+  }
   const account = await loadAccountDetails(a)
   if (!account) return
   edAcc.value = account

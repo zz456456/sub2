@@ -11,6 +11,8 @@ package domain
 type PlatformGateway string
 
 const (
+	// PlatformGatewayManagement stores an account pool without advertising an API gateway.
+	PlatformGatewayManagement PlatformGateway = "management"
 	// PlatformGatewayAnthropic 由 GatewayService 处理（Claude Messages 协议，以及 TypeSafe 的 /v1/systemone）。
 	PlatformGatewayAnthropic PlatformGateway = "anthropic"
 	// PlatformGatewayOpenAI 由 OpenAIGatewayService 处理（OpenAI、Grok 与多协议 API Key 供应商）。
@@ -48,6 +50,7 @@ var platformList = []PlatformSpec{
 	{ID: PlatformTypeSafe, DisplayName: "TypeSafe / Jev", Gateway: PlatformGatewayAnthropic, LiteLLMProvider: "typesafe"},
 	{ID: PlatformCommandCode, DisplayName: "Command Code", Gateway: PlatformGatewayOpenAI},
 	{ID: PlatformCline, DisplayName: "Cline", Gateway: PlatformGatewayOpenAI},
+	{ID: PlatformChatGPT, DisplayName: "ChatGPT", Gateway: PlatformGatewayManagement},
 }
 
 var platformIndex = func() map[string]int {
@@ -78,6 +81,16 @@ func LookupPlatform(id string) (PlatformSpec, bool) {
 func IsConcretePlatform(id string) bool {
 	_, ok := platformIndex[id]
 	return ok
+}
+
+// IsRequestPlatform excludes management-only account pools from API routing.
+func IsRequestPlatform(id string) bool {
+	spec, ok := LookupPlatform(id)
+	return ok && spec.Gateway != PlatformGatewayManagement
+}
+
+func RequestPlatformIDs() []string {
+	return PlatformIDsWhere(func(spec PlatformSpec) bool { return spec.Gateway != PlatformGatewayManagement })
 }
 
 // IsGroupPlatform 报告 id 是否可作为分组平台（具体平台或 composite）。
@@ -117,6 +130,9 @@ func CompositePrecedencePlatformIDs() []string {
 		}
 	}
 	for _, spec := range platformList {
+		if spec.Gateway == PlatformGatewayManagement {
+			continue
+		}
 		if _, ok := seen[spec.ID]; !ok {
 			out = append(out, spec.ID)
 		}

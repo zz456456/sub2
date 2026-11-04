@@ -489,6 +489,10 @@ func flattenCodexImportValues(values []any) []any {
 }
 
 func normalizeCodexImportEntry(entry codexImportEntry) (*codexImportAccount, error) {
+	return normalizeCodexImportEntryAllowExpired(entry, false)
+}
+
+func normalizeCodexImportEntryAllowExpired(entry codexImportEntry, allowExpired bool) (*codexImportAccount, error) {
 	now := time.Now().UTC()
 	item := &codexImportAccount{
 		Credentials: map[string]any{},
@@ -603,7 +607,7 @@ func normalizeCodexImportEntry(entry codexImportEntry) (*codexImportAccount, err
 			[]string{"expires_at"},
 			[]string{"expiresAt"},
 		); ok {
-			if tokenExpiresAt.Unix() <= now.Unix()-codexImportClockSkewSeconds {
+			if !allowExpired && tokenExpiresAt.Unix() <= now.Unix()-codexImportClockSkewSeconds {
 				return nil, fmt.Errorf("access_token 已过期: %s", tokenExpiresAt.Format(time.RFC3339))
 			}
 			item.TokenExpiresAt = &tokenExpiresAt
@@ -633,8 +637,15 @@ func normalizeCodexImportEntry(entry codexImportEntry) (*codexImportAccount, err
 		item.Credentials["id_token"] = item.IDToken
 		_ = enrichCodexImportAccountFromJWT(item, item.IDToken, false, now)
 	}
-	if err := enrichCodexImportAccountFromJWT(item, item.AccessToken, true, now); err != nil {
+	if err := enrichCodexImportAccountFromJWT(item, item.AccessToken, !allowExpired, now); err != nil {
 		return nil, err
+	}
+	if allowExpired {
+		if claims, err := decodeCodexJWTClaims(item.AccessToken); err == nil && claims.Exp > 0 {
+			expiresAt := time.Unix(claims.Exp, 0).UTC()
+			item.TokenExpiresAt = &expiresAt
+			item.Credentials["expires_at"] = expiresAt.Format(time.RFC3339)
+		}
 	}
 	if _, ok := item.Credentials["expires_at"]; !ok {
 		item.WarningTexts = append(item.WarningTexts, "无法从 accessToken 解析过期时间，导入后需自行确认令牌有效性")

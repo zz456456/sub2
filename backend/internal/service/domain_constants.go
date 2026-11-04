@@ -127,9 +127,9 @@ func IsMultiProtocolAPIKeyProvider(platform string) bool {
 	return LookupProviderProfile(platform) != nil
 }
 
-// AllowedQuotaPlatforms 是允许设置 user × platform quota 的平台列表：全部已登记的
-// 具体平台（domain/platforms.go），ent/schema/user_platform_quota.go 的校验同源。
-var AllowedQuotaPlatforms = domain.ConcretePlatformIDs()
+// AllowedQuotaPlatforms contains request-serving platforms. Management-only
+// account pools do not expose billable API quotas.
+var AllowedQuotaPlatforms = domain.RequestPlatformIDs()
 
 // AllowedSchedulingThresholdPlatforms 是允许设置账号自动停调阈值的平台列表。
 // openai/anthropic/grok 有原生用量窗口；kimi/zhipu/minimax 的 Coding Plan 同样暴露

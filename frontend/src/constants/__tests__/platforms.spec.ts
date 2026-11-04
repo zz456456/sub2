@@ -27,7 +27,8 @@ const concretePlatforms = [
   'opencode_go',
   'typesafe',
   'command_code',
-  'cline'
+  'cline',
+  'chatgpt'
 ]
 
 describe('platform option catalogs', () => {
@@ -64,7 +65,7 @@ describe('platform catalog with a newly registered platform', () => {
     ])
     expect(CONCRETE_PLATFORM_OPTIONS.map((option) => option.label)).toEqual([
       'Anthropic', 'OpenAI', 'Gemini', 'Antigravity', 'Grok',
-      'Kimi', 'Zhipu GLM', 'DeepSeek', 'MiniMax', 'OpenCode', 'TypeSafe / Jev', 'Command Code', 'Cline'
+      'Kimi', 'Zhipu GLM', 'DeepSeek', 'MiniMax', 'OpenCode', 'TypeSafe / Jev', 'Command Code', 'Cline', 'ChatGPT'
     ])
     expect(platformLabel('zhipu')).toBe('Zhipu GLM')
     expect(platformLabel('composite')).toBe('Composite')
@@ -87,7 +88,8 @@ describe('platform catalog with a newly registered platform', () => {
     expect(platformDisplayName('acme_router')).toBe('Acme Router')
     expect(platformLabel('unregistered')).toBe('unregistered')
     expect(platformQuotaPlatforms()).toContain('acme_router')
-    expect(Object.keys(normalizePlatformQuotasMap())).toEqual([...concretePlatforms, 'acme_router'])
+    expect(Object.keys(normalizePlatformQuotasMap())).toEqual([...concretePlatforms.filter(platform => platform !== 'chatgpt'), 'acme_router'])
+    expect(platformQuotaPlatforms()).not.toContain('chatgpt')
     expect(sanitizePlatformQuotasMap({ acme_router: { daily: 5, weekly: -1, monthly: null } }).acme_router).toEqual({
       daily: 5,
       weekly: null,
