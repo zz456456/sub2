@@ -105,7 +105,7 @@ func isClientCanceledTransportError(ctx context.Context, err error) bool {
 //     except when the client disconnected (see isClientCanceledTransportError);
 //  2. for durable faults (expired/rejected proxy creds, dead proxy, DNS/routing)
 //     temporarily unschedules the account (DB + in-memory) and logs a stable
-//     warn event that alert rules can key on;
+//     warn event that alert rules can key on, when network-error cooldown is enabled;
 //  3. returns an error that is *UpstreamFailoverError (so the handler fails over
 //     to a healthy account) for all non-canceled errors, or a plain error for
 //     context.Canceled (client gone — no failover, no eviction).
@@ -150,7 +150,7 @@ func (s *OpenAIGatewayService) handleOpenAIUpstreamTransportError(ctx context.Co
 		return err
 	}
 
-	if classifyUpstreamTransportError(err).Persistent {
+	if classifyUpstreamTransportError(err).Persistent && s.networkErrorCooldownEnabled(ctx) {
 		s.tempUnscheduleOpenAITransportError(ctx, account, safeErr)
 	}
 
@@ -158,6 +158,18 @@ func (s *OpenAIGatewayService) handleOpenAIUpstreamTransportError(ctx context.Co
 		StatusCode:   http.StatusBadGateway,
 		ResponseBody: openAITransportFailoverBody,
 	}
+}
+
+func (s *OpenAIGatewayService) networkErrorCooldownEnabled(ctx context.Context) bool {
+	if s == nil || s.settingService == nil || s.settingService.settingRepo == nil {
+		return true
+	}
+	settings, err := s.settingService.GetNetworkErrorCooldownSettings(ctx)
+	if err != nil {
+		// Preserve the default cooldown if settings are temporarily unavailable.
+		return true
+	}
+	return settings.Enabled
 }
 
 // tempUnscheduleOpenAITransportError marks an account temporarily unschedulable

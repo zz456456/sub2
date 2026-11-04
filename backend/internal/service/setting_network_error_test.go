@@ -56,3 +56,28 @@ func TestNetworkErrorCooldownPreservesFailover(t *testing.T) {
 		})
 	}
 }
+
+func TestNetworkErrorCooldownDefaultsWhenSettingsUnavailable(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		settings *SettingService
+	}{
+		{name: "no service"},
+		{name: "no repository", settings: &SettingService{}},
+		{name: "repository error", settings: NewSettingService(&mockSettingRepo{getValueErr: errors.New("database unavailable")}, &config.Config{})},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &capacityShedAccountRepoStub{}
+			svc := &OpenAIGatewayService{accountRepo: repo, settingService: tc.settings}
+			account := &Account{ID: 123, Platform: "openai"}
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest("POST", "/v1/responses", nil)
+			err := svc.handleOpenAIUpstreamTransportError(context.Background(), c, account, errors.New("connection refused"), false)
+			var failover *UpstreamFailoverError
+			require.ErrorAs(t, err, &failover)
+			_, blocked := svc.openaiAccountRuntimeBlockUntil.Load(account.ID)
+			require.True(t, blocked)
+			require.Equal(t, 1, repo.tempUnschedCalls)
+		})
+	}
+}
